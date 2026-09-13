@@ -1,0 +1,43 @@
+name: Doorbell PR Review
+
+# This is the event-driven heartbeat: no schedule, no human running a
+# command. GitHub fires this job the moment a PR is opened, and again
+# on every push to that PR (the "synchronize" event).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history to diff base...head
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run automated review
+        id: review
+        continue-on-error: true
+        run: |
+          python review_pr.py origin/${{ github.event.pull_request.base.ref }} ${{ github.event.pull_request.head.sha }}
+
+      - name: Post review as a PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('review_comment.md', 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+      - name: Fail the check if review flagged issues
+        if: steps.review.outcome == 'failure'
+        run: exit 1
